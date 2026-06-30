@@ -1,0 +1,12 @@
+[
+  {
+    "name": "account-one",
+    "partnerUserID": "aa_developer_yourcompany_com",
+    "partnerUserSecret": "your-secret-here"
+  },
+  {
+    "name": "account-two",
+    "partnerUserID": "aa_developer_secondcompany_com",
+    "partnerUserSecret": "your-secret-here"
+  }
+]
