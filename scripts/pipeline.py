@@ -1,30 +1,33 @@
 """
 Pipeline orchestrator.
 
-Coordinates the full ETL flow for one or more months:
+Coordinates the full ETL flow for one date range:
 
 1. Resolve the list of calendar month periods from the CLI args.
-2. For each month:
-   a. Check resume logic (skip if transactions CSV already exists and
-      --force not set).
-   b. Make three API calls — one per Freemarker template:
-        reports.csv      — one row per report
-        transactions.csv — one row per transaction (includes report_id, report_name)
-        actions.csv      — one row per action log entry (includes report_id, report_name)
-   c. Save all three raw CSV files to uploads/pending/.
-      Files stay in pending until the DB insertion function is ready.
+2. Optionally skip the whole run if combined CSVs for this exact range
+   already exist (resume support via --force to override).
+3. For each month, make three API calls (reports, transactions, actions)
+   and accumulate the raw CSV bytes — no files are written yet.
+4. After all months are fetched, merge the accumulated chunks and write
+   three combined CSV files to uploads/pending/<account>/:
+
+       2026-01-01_2026-12-31_reports_20260630T103000Z.csv
+       2026-01-01_2026-12-31_transactions_20260630T103000Z.csv
+       2026-01-01_2026-12-31_actions_20260630T103000Z.csv
+
+   One UTC timestamp is shared across all three files so they sort together.
 
 Error isolation: a failure in one month is logged and displayed but does
-NOT abort the remaining months.
+NOT abort the remaining months.  If any month fails, no combined CSV is
+written for the affected types (so the range is not marked as complete).
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -47,8 +50,7 @@ from scripts.config import AppConfig
 from scripts.csv_exporter import (
     count_csv_rows,
     csv_already_exists,
-    write_actions_csv,
-    write_raw_csv,
+    write_combined_csvs,
 )
 from scripts.logger import get_logger
 from scripts.rate_limiter import RateLimiter
@@ -71,7 +73,6 @@ class MonthResult:
     reports: int = 0
     transactions: int = 0
     actions: int = 0
-    csv_paths: list[Path] = field(default_factory=list)
     error: str | None = None
     duration_seconds: float = 0.0
 
@@ -83,6 +84,7 @@ class MonthResult:
 @dataclass
 class PipelineResult:
     months: list[MonthResult] = field(default_factory=list)
+    csv_paths: list[Path] = field(default_factory=list)
 
     @property
     def total_reports(self) -> int:
@@ -129,21 +131,50 @@ class Pipeline:
 
     def run(self) -> PipelineResult:
         """Execute the pipeline and return a :class:`PipelineResult`."""
-        periods = list(
-            months_in_range(self._args.start, self._args.end)
-        )
+        periods = list(months_in_range(self._args.start, self._args.end))
 
         if self._args.dry_run:
             return self._dry_run(periods)
 
         result = PipelineResult()
 
+        # ------------------------------------------------------------------ #
+        # Range-level resume check                                             #
+        # ------------------------------------------------------------------ #
+        if not self._args.force and csv_already_exists(
+            start_date=self._args.start,
+            end_date=self._args.end,
+            pending_dir=self._config.pending_dir,
+            processed_dir=self._config.processed_dir,
+        ):
+            console.print(
+                f"[yellow]SKIP[/yellow] {self._args.start} → {self._args.end} "
+                f"— combined CSVs already exist (use --force to overwrite)"
+            )
+            log.info(
+                "Skipping %s → %s — combined CSVs already exist.",
+                self._args.start,
+                self._args.end,
+            )
+            for start_date, _ in periods:
+                result.months.append(
+                    MonthResult(year=start_date.year, month=start_date.month, skipped=True)
+                )
+            return result
+
+        # ------------------------------------------------------------------ #
+        # Fetch phase — accumulate raw CSV bytes per type across all months   #
+        # ------------------------------------------------------------------ #
+        accumulated: dict[str, list[bytes]] = {t: [] for t in ("reports", "transactions", "actions")}
+        run_at = datetime.now(tz=timezone.utc)
+
         console.print(
             Panel(
                 f"[bold cyan]Expensify Data Pipeline[/bold cyan]\n"
-                f"Period: [yellow]{self._args.start}[/yellow] → "
+                f"Account:  [white]{self._config.account_name}[/white]\n"
+                f"Period:   [yellow]{self._args.start}[/yellow] → "
                 f"[yellow]{self._args.end}[/yellow]\n"
-                f"Months: [green]{len(periods)}[/green]",
+                f"Months:   [green]{len(periods)}[/green]",
                 border_style="cyan",
             )
         )
@@ -151,35 +182,68 @@ class Pipeline:
         with ExpensifyClient(self._config, self._rate_limiter) as client:
             progress = self._build_progress()
             with progress:
-                overall_task = progress.add_task(
-                    "[cyan]Overall", total=len(periods)
-                )
+                overall_task = progress.add_task("[cyan]Fetching", total=len(periods))
 
                 for start_date, end_date in periods:
-                    month_result = self._process_month(
+                    month_result = self._fetch_month(
                         client=client,
                         progress=progress,
                         overall_task=overall_task,
                         start_date=start_date,
                         end_date=end_date,
+                        accumulated=accumulated,
                     )
                     result.months.append(month_result)
                     progress.advance(overall_task)
+
+        # ------------------------------------------------------------------ #
+        # Write phase — one combined file per CSV type                        #
+        # ------------------------------------------------------------------ #
+        if result.total_transactions > 0 and result.failed == 0:
+            csv_paths = write_combined_csvs(
+                accumulated=accumulated,
+                start_date=self._args.start,
+                end_date=self._args.end,
+                pending_dir=self._config.pending_dir,
+                restaurant_name=self._config.account_name,
+                run_at=run_at,
+            )
+            result.csv_paths = csv_paths
+
+            console.print(
+                f"\n[green]✓[/green] Combined CSVs written to "
+                f"[dim]{self._config.pending_dir.relative_to(self._config.project_root)}/"
+                f"[/dim]:"
+            )
+            for p in csv_paths:
+                console.print(f"   [dim]→[/dim] {p.name}")
+
+        elif result.failed > 0:
+            console.print(
+                f"\n[red]✗[/red] {result.failed} month(s) failed — "
+                f"combined CSVs were NOT written. Fix the errors and re-run."
+            )
+        else:
+            console.print(
+                f"\n[yellow]~[/yellow] No transactions found for "
+                f"{self._args.start} → {self._args.end}."
+            )
 
         self._print_summary(result)
         return result
 
     # ------------------------------------------------------------------
-    # Month processing
+    # Month fetch (API calls only — no file writing)
     # ------------------------------------------------------------------
 
-    def _process_month(
+    def _fetch_month(
         self,
         client: ExpensifyClient,
         progress: Progress,
         overall_task: TaskID,
         start_date: date,
         end_date: date,
+        accumulated: dict[str, list[bytes]],
     ) -> MonthResult:
         year = start_date.year
         month = start_date.month
@@ -188,27 +252,10 @@ class Pipeline:
         result = MonthResult(year=year, month=month)
         t0 = time.perf_counter()
 
-        # --- Resume check --------------------------------------------------
-        if not self._args.force and csv_already_exists(
-            year=year,
-            month=month,
-            pending_dir=self._config.pending_dir,
-            processed_dir=self._config.processed_dir,
-        ):
-            console.print(
-                f"[yellow]SKIP[/yellow] {label} — CSV already exists "
-                f"(use --force to overwrite)"
-            )
-            log.info("Skipping %s — CSV already exists.", label)
-            result.skipped = True
-            return result
-
-        # --- API calls (3 templates) ----------------------------------------
         month_task = progress.add_task(f"[green]{label}", total=None)
 
         try:
-            log.info("Processing %s: %s → %s", label, start_date, end_date)
-            console.print(f"[bold]→[/bold] Fetching [cyan]{label}[/cyan] ...")
+            log.info("Fetching %s: %s → %s", label, start_date, end_date)
 
             all_csvs = client.fetch_all_csvs(
                 start_date=format_expensify_date(start_date),
@@ -219,40 +266,19 @@ class Pipeline:
             result.transactions = count_csv_rows(all_csvs["transactions"])
             result.actions = count_csv_rows(all_csvs["actions"])
 
-            if result.transactions > 0:
-                for csv_type, content in all_csvs.items():
-                    if csv_type == "actions":
-                        # Dynamic schema: expand JSON column into wide CSV
-                        csv_path = write_actions_csv(
-                            content=content,
-                            year=year,
-                            month=month,
-                            pending_dir=self._config.pending_dir,
-                            restaurant_name=self._config.account_name,
-                        )
-                    else:
-                        csv_path = write_raw_csv(
-                            content=content,
-                            year=year,
-                            month=month,
-                            pending_dir=self._config.pending_dir,
-                            csv_type=csv_type,
-                            restaurant_name=self._config.account_name,
-                        )
-                    result.csv_paths.append(csv_path)
+            for csv_type, content in all_csvs.items():
+                accumulated[csv_type].append(content)
 
-                console.print(
-                    f"  [green]✓[/green] {label}: "
-                    f"[bold]{result.reports}[/bold] reports · "
-                    f"[bold]{result.transactions}[/bold] transactions · "
-                    f"[bold]{result.actions}[/bold] actions → "
-                    f"[dim]uploads/pending/[/dim]"
-                )
-            else:
-                console.print(
-                    f"  [yellow]~[/yellow] {label}: no transactions found."
-                )
-                log.info("%s returned 0 transactions.", label)
+            console.print(
+                f"  [green]✓[/green] {label}: "
+                f"[bold]{result.reports}[/bold] reports · "
+                f"[bold]{result.transactions}[/bold] transactions · "
+                f"[bold]{result.actions}[/bold] actions"
+            )
+            log.info(
+                "Fetched %s: reports=%d transactions=%d actions=%d",
+                label, result.reports, result.transactions, result.actions,
+            )
 
         except ExpensifyAPIError as exc:
             result.error = str(exc)
@@ -269,13 +295,8 @@ class Pipeline:
             progress.remove_task(month_task)
 
         log.info(
-            "Month done: %s reports=%d transactions=%d actions=%d duration=%.2fs error=%s",
-            label,
-            result.reports,
-            result.transactions,
-            result.actions,
-            result.duration_seconds,
-            result.error,
+            "Month done: %s duration=%.2fs error=%s",
+            label, result.duration_seconds, result.error,
         )
         return result
 
@@ -291,30 +312,31 @@ class Pipeline:
         table.add_column("Month", style="cyan")
         table.add_column("Start", style="green")
         table.add_column("End", style="green")
-        table.add_column("Existing?", style="yellow")
 
         result = PipelineResult()
 
         for start_date, end_date in periods:
             year, month = start_date.year, start_date.month
-            existing = csv_already_exists(
-                year=year,
-                month=month,
-                pending_dir=self._config.pending_dir,
-                processed_dir=self._config.processed_dir,
-            )
-            mr = MonthResult(year=year, month=month, skipped=existing and not self._args.force)
+            mr = MonthResult(year=year, month=month)
             result.months.append(mr)
             table.add_row(
                 f"{year} {month_name(month)}",
                 str(start_date),
                 str(end_date),
-                "Yes (would skip)" if existing and not self._args.force
-                else "Yes (would overwrite)" if existing
-                else "No",
             )
 
+        existing = csv_already_exists(
+            start_date=self._args.start,
+            end_date=self._args.end,
+            pending_dir=self._config.pending_dir,
+            processed_dir=self._config.processed_dir,
+        )
         console.print(table)
+        console.print(
+            f"\nOutput: [dim]{self._config.pending_dir}/[/dim]\n"
+            f"Combined CSVs exist: "
+            + ("[yellow]Yes (would skip — use --force to overwrite)[/yellow]" if existing else "[green]No[/green]")
+        )
         return result
 
     # ------------------------------------------------------------------

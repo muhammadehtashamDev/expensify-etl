@@ -131,51 +131,112 @@ def coerce_bool(value: Any, default: bool = False) -> bool:
 # Upload path helpers
 # ---------------------------------------------------------------------------
 
-def pending_csv_path(base_dir: Path, year: int, month: int, csv_type: str = "") -> Path:
-    """Return the full path for a pending CSV file.
-
-    Creates intermediate directories as needed.
-
-    Args:
-        base_dir: Root pending directory (``uploads/pending``).
-        year:     Four-digit year.
-        month:    Month number 1–12.
-        csv_type: Optional suffix — ``"reports"``, ``"transactions"``, or
-                  ``"actions"``.  When empty the file has no suffix.
-
-    Returns:
-        ``uploads/pending/2026/January/2026_01_January_transactions.csv``
-    """
+def _csv_stem(year: int, month: int, csv_type: str, file_ts: str) -> str:
+    """Build the filename stem: ``<year>_<MM>_<MonthName>[_<csv_type>][_<file_ts>]``."""
     name = month_name(month)
     month_str = f"{month:02d}"
-    directory = base_dir / str(year) / name
-    directory.mkdir(parents=True, exist_ok=True)
     stem = f"{year}_{month_str}_{name}"
     if csv_type:
         stem += f"_{csv_type}"
-    return directory / f"{stem}.csv"
+    if file_ts:
+        stem += f"_{file_ts}"
+    return stem
 
 
-def processed_csv_path(base_dir: Path, year: int, month: int, csv_type: str = "") -> Path:
-    """Return the full path for a processed CSV file.
+def pending_csv_path(
+    base_dir: Path, year: int, month: int, csv_type: str = "", file_ts: str = ""
+) -> Path:
+    """Return the flat path for a pending CSV file directly under *base_dir*.
 
-    Creates intermediate directories as needed.
+    No year/month subdirectories are created — all files for an account land
+    in one folder, distinguished by their name and timestamp.
 
     Args:
-        base_dir: Root processed directory (``uploads/processed``).
+        base_dir: Account pending directory (``uploads/pending/<account>``).
         year:     Four-digit year.
         month:    Month number 1–12.
-        csv_type: Optional suffix — ``"reports"``, ``"transactions"``, or
-                  ``"actions"``.  When empty the file has no suffix.
+        csv_type: File type — ``"reports"``, ``"transactions"``, or ``"actions"``.
+        file_ts:  UTC run timestamp in ``YYYYMMDDTHHMMSSz`` format (e.g. ``20260630T103000Z``).
 
     Returns:
-        ``uploads/processed/2026/January/2026_01_January_transactions.csv``
+        ``uploads/pending/<account>/2026_01_January_transactions_20260630T103000Z.csv``
     """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir / f"{_csv_stem(year, month, csv_type, file_ts)}.csv"
+
+
+def processed_csv_path(
+    base_dir: Path, year: int, month: int, csv_type: str = "", file_ts: str = ""
+) -> Path:
+    """Return the flat path for a processed CSV file directly under *base_dir*.
+
+    Args:
+        base_dir: Account processed directory (``uploads/processed/<account>``).
+        year:     Four-digit year.
+        month:    Month number 1–12.
+        csv_type: File type — ``"reports"``, ``"transactions"``, or ``"actions"``.
+        file_ts:  UTC run timestamp in ``YYYYMMDDTHHMMSSz`` format.
+
+    Returns:
+        ``uploads/processed/<account>/2026_01_January_transactions_20260630T103000Z.csv``
+    """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir / f"{_csv_stem(year, month, csv_type, file_ts)}.csv"
+
+
+def month_csv_exists(base_dir: Path, year: int, month: int, csv_type: str = "transactions") -> bool:
+    """Return True if any CSV matching this month and type already exists in *base_dir*.
+
+    Uses a glob pattern so it finds files regardless of their timestamp suffix.
+
+    Args:
+        base_dir: Directory to search (account pending or processed dir).
+        year:     Four-digit year.
+        month:    Month number 1–12.
+        csv_type: File type to look for (default ``"transactions"``).
+    """
+    if not base_dir.exists():
+        return False
     name = month_name(month)
     month_str = f"{month:02d}"
-    directory = base_dir / str(year) / name
-    directory.mkdir(parents=True, exist_ok=True)
-    stem = f"{year}_{month_str}_{name}"
-    if csv_type:
-        stem += f"_{csv_type}"
-    return directory / f"{stem}.csv"
+    return any(base_dir.glob(f"{year}_{month_str}_{name}_{csv_type}*.csv"))
+
+
+def range_csv_path(
+    base_dir: Path, start: date, end: date, csv_type: str, file_ts: str = ""
+) -> Path:
+    """Return the flat path for a combined date-range CSV directly under *base_dir*.
+
+    Args:
+        base_dir: Account directory (``uploads/pending/<account>``).
+        start:    First day of the exported range (inclusive).
+        end:      Last day of the exported range (inclusive).
+        csv_type: ``"reports"``, ``"transactions"``, or ``"actions"``.
+        file_ts:  UTC run timestamp in ``YYYYMMDDTHHMMSSz`` format.
+
+    Returns:
+        ``uploads/pending/<account>/2026-01-01_2026-12-31_transactions_20260630T103000Z.csv``
+    """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"{start}_{end}_{csv_type}"
+    if file_ts:
+        stem += f"_{file_ts}"
+    return base_dir / f"{stem}.csv"
+
+
+def range_csv_exists(
+    base_dir: Path, start: date, end: date, csv_type: str = "transactions"
+) -> bool:
+    """Return True if any combined CSV for this date range and type exists in *base_dir*.
+
+    Globs for ``{start}_{end}_{csv_type}*.csv`` so it matches any timestamp suffix.
+
+    Args:
+        base_dir: Account directory to search.
+        start:    Range start date.
+        end:      Range end date.
+        csv_type: File type to look for (default ``"transactions"``).
+    """
+    if not base_dir.exists():
+        return False
+    return any(base_dir.glob(f"{start}_{end}_{csv_type}*.csv"))

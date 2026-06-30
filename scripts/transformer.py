@@ -51,14 +51,24 @@ REPORT_COLUMNS = [
     "entry_id",
     "report_currency",
     "report_total",
+    "submitter_first_name",
+    "submitter_last_name",
     "submitter_full_name",
+    "manager_email",
+    "manager_user_id",
+    "manager_payroll_id",
+    "manager_first_name",
+    "manager_last_name",
     "manager_full_name",
+    "employee_custom_field1",
+    "employee_custom_field2",
     "report_created",
     "report_submitted",
     "report_approved",
     "report_reimbursed",
     "is_ach_reimbursed",
     "action_list_json",
+    "approvers_json",
 ]
 
 TRANSACTION_COLUMNS = [
@@ -168,10 +178,19 @@ def flatten_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _extract_report_fields(report: dict[str, Any]) -> dict[str, Any]:
     """Pull all report-level fields into a flat dict."""
     action_list = report.get("actionList") or []
+    approvers = report.get("approvers") or []
+    submitter: dict[str, Any] = report.get("submitter") or {}
+    manager: dict[str, Any] = report.get("manager") or {}
+
     try:
         action_list_json = json.dumps(action_list, ensure_ascii=False)
     except (TypeError, ValueError):
         action_list_json = "[]"
+
+    try:
+        approvers_json = json.dumps(approvers, ensure_ascii=False)
+    except (TypeError, ValueError):
+        approvers_json = "[]"
 
     return {
         "report_id": safe_get(report, "reportID", default=""),
@@ -186,8 +205,19 @@ def _extract_report_fields(report: dict[str, Any]) -> dict[str, Any]:
         "entry_id": safe_get(report, "entryID", default=""),
         "report_currency": safe_get(report, "currency", default=""),
         "report_total": coerce_float(safe_get(report, "total", default=0)),
-        "submitter_full_name": safe_get(report, "submitterFullName", default=""),
-        "manager_full_name": safe_get(report, "managerFullName", default=""),
+        "submitter_first_name": safe_get(submitter, "firstName", default=""),
+        "submitter_last_name": safe_get(submitter, "lastName", default=""),
+        "submitter_full_name": safe_get(submitter, "fullName", default="")
+            or safe_get(report, "submitterFullName", default=""),
+        "manager_email": safe_get(report, "managerEmail", default=""),
+        "manager_user_id": safe_get(report, "managerUserID", default=""),
+        "manager_payroll_id": safe_get(report, "managerPayrollID", default=""),
+        "manager_first_name": safe_get(manager, "firstName", default=""),
+        "manager_last_name": safe_get(manager, "lastName", default=""),
+        "manager_full_name": safe_get(manager, "fullName", default="")
+            or safe_get(report, "managerFullName", default=""),
+        "employee_custom_field1": safe_get(report, "employeeCustomField1", default=""),
+        "employee_custom_field2": safe_get(report, "employeeCustomField2", default=""),
         "report_created": safe_get(report, "created", default=""),
         "report_submitted": safe_get(report, "submitted", default=""),
         "report_approved": safe_get(report, "approved", default=""),
@@ -196,6 +226,7 @@ def _extract_report_fields(report: dict[str, Any]) -> dict[str, Any]:
             safe_get(report, "isACHReimbursed", default=False)
         ),
         "action_list_json": action_list_json,
+        "approvers_json": approvers_json,
     }
 
 
