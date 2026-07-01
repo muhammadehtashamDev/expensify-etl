@@ -77,6 +77,7 @@ class AppConfig:
     # Logging
     log_level: str
     log_dir: Path
+    log_retention_days: int
 
     # Retention
     retention_days: int
@@ -160,6 +161,7 @@ def load_config() -> AppConfig:
         processed_dir=_resolve(_get("UPLOAD_PROCESSED_DIR", "uploads/processed")),
         log_level=_get("LOG_LEVEL", "INFO").upper(),
         log_dir=_resolve(_get("LOG_DIR", "logs")),
+        log_retention_days=_get_int("LOG_RETENTION_DAYS", 30),
         retention_days=_get_int("RETENTION_DAYS", 30),
         db_host=_require("DB_HOST"),
         db_port=_get_int("DB_PORT", 5432),

@@ -9,25 +9,17 @@ Usage:
     python export.py --start 2026-01-15 --end 2026-04-30
     python export.py --year 2026 --force
     python export.py --year 2026 --dry-run
-
-Credentials are loaded from config/accounts.json (never committed to git).
-Each account writes to its own subdirectory:
-    uploads/pending/<account-name>/2026/January/
 """
 
 from __future__ import annotations
 
 import dataclasses
 import sys
-from pathlib import Path
 
 from rich.console import Console
 from rich.rule import Rule
 
 console = Console()
-
-# Location of the accounts credentials file
-_ACCOUNTS_FILE = Path(__file__).parent / "config" / "accounts.json"
 
 
 def main() -> int:
@@ -54,13 +46,17 @@ def main() -> int:
         console.print(f"[red]Configuration error:[/red] {exc}")
         return 1
 
-    setup_logging(log_dir=base_config.log_dir, log_level=base_config.log_level)
+    setup_logging(
+        log_dir=base_config.log_dir,
+        log_level=base_config.log_level,
+        log_retention_days=base_config.log_retention_days,
+    )
 
     # ------------------------------------------------------------------ #
     # Load accounts                                                        #
     # ------------------------------------------------------------------ #
     try:
-        all_accounts = load_accounts(_ACCOUNTS_FILE)
+        all_accounts = load_accounts()
     except (FileNotFoundError, ValueError) as exc:
         console.print(f"[red]Accounts error:[/red] {exc}")
         return 1

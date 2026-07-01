@@ -20,7 +20,6 @@ The pipeline calls three Freemarker templates per month. The Expensify server ge
 - **UTF-8 BOM CSV** — Excel-compatible
 - **Config via `.env`** — no secrets in source code
 - **Cleanup utility** — configurable retention policy; removes stale processed files
-- **Unit tested** — rate limiter, date utils, transformer, CSV exporter, CLI
 
 ---
 
@@ -35,8 +34,6 @@ expensify-etl/
 ├── README.md
 │
 ├── config/
-│   ├── accounts.example.json    # Example format for the JSON fallback
-│   ├── accounts.json            # Gitignored — not needed when using .env
 │   └── templates/
 │       ├── reports_template.ftl      # Freemarker template: one row per report
 │       ├── transactions_template.ftl # Freemarker template: one row per transaction
@@ -44,26 +41,18 @@ expensify-etl/
 │
 ├── scripts/
 │   ├── __init__.py
-│   ├── accounts.py              # Multi-account loader (env vars → JSON fallback)
+│   ├── accounts.py              # Multi-account loader (env vars)
 │   ├── config.py                # Environment config loader
 │   ├── logger.py                # Logging setup
 │   ├── rate_limiter.py          # Dual-window token-bucket limiter
 │   ├── retry.py                 # Tenacity retry decorator
 │   ├── client.py                # Expensify HTTP client
-│   ├── transformer.py           # JSON → flat dict transformer (local/test use)
+│   ├── transformer.py           # JSON → flat dict transformer (local use)
 │   ├── csv_exporter.py          # CSV writer
 │   ├── pipeline.py              # ETL orchestrator
 │   ├── cli.py                   # argparse CLI definitions
 │   ├── cleanup.py               # Retention-based cleanup utility
 │   └── utils.py                 # Date helpers, path helpers, coercions
-│
-├── tests/
-│   ├── __init__.py
-│   ├── test_rate_limiter.py
-│   ├── test_utils.py
-│   ├── test_transformer.py
-│   ├── test_cli.py
-│   └── test_csv_exporter.py
 │
 └── uploads/
     └── pending/                 # CSVs written here (flat per account)
@@ -145,6 +134,7 @@ Add one numbered block per account (`ACCOUNT_1_*`, `ACCOUNT_2_*`, …). The pipe
 | `UPLOAD_PROCESSED_DIR` | `uploads/processed` | Used by cleanup utility |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_DIR` | `logs` | Directory for log files |
+| `LOG_RETENTION_DAYS` | `30` | Days to retain log files before deleting old `.log` and rotated `.log.*` files (`0` = delete all on startup, negative = disable age-based deletion) |
 | `RETENTION_DAYS` | `30` | Days to retain processed files |
 | `DB_HOST` | *(required)* | PostgreSQL host |
 | `DB_PORT` | `5432` | PostgreSQL port |
@@ -231,20 +221,6 @@ python scripts/cleanup.py --retention-days 60
 
 ---
 
-## Running Tests
-
-```bash
-pytest tests/ -v
-```
-
-With coverage:
-
-```bash
-pytest tests/ -v --cov=scripts --cov-report=term-missing
-```
-
----
-
 ## Logging
 
 Two rotating log files are written to `logs/`:
@@ -255,6 +231,8 @@ Two rotating log files are written to `logs/`:
 | `error.log` | Errors only, rotating 10 MB × 5 |
 
 Each log entry includes timestamp, level, module name, and message.
+
+Log files older than `LOG_RETENTION_DAYS` are deleted automatically when the application starts.
 
 ---
 
