@@ -35,6 +35,7 @@ log = get_logger(__name__)
 _UTF8_BOM = b"\xef\xbb\xbf"
 
 CSV_TYPES = ("reports", "transactions", "actions")
+_ACTION_BASE_COLUMNS = frozenset({"report_id", "old_report_id", "report_name", "restaurant_name", "filename", "created_at"})
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +140,7 @@ def _combine_actions_chunks(
 ) -> bytes:
     """Combine compact action chunks from all months into a single wide CSV.
 
-    Each chunk is a 3-column CSV (report_id, report_name, action_data JSON).
+    Each chunk is a 4-column CSV (report_id, old_report_id, report_name, action_data JSON).
     All chunks are merged first, then the wide-key expansion is performed
     once so that every unique action key discovered across the whole date
     range becomes a column — even if it only appears in one month's data.
@@ -155,14 +156,46 @@ def _combine_actions_chunks(
         all_raw_rows.extend(reader)
 
     if not all_raw_rows:
-        return b"report_id,report_name,restaurant_name,filename,createdAt\r\n"
+        return b"report_id,old_report_id,report_name,restaurant_name,filename,createdAt\r\n"
 
-    expanded: list[tuple[str, str, dict[str, Any]]] = []
+    expanded: list[tuple[str, str, str, dict[str, Any]]] = []
     all_keys: list[str] = []
     seen_keys: set[str] = set()
+    key_aliases: dict[str, str] = {}
+
+    def normalize_header(value: str) -> str:
+        out: list[str] = []
+        for index, ch in enumerate(value):
+            if ch.isupper() and index > 0 and not value[index - 1].isupper():
+                out.append("_")
+            out.append(ch.lower())
+        return "".join(out)
+
+    used_normalized_headers = set(_ACTION_BASE_COLUMNS)
+
+    def unique_action_header(key: str) -> str:
+        if key in key_aliases:
+            return key_aliases[key]
+
+        candidate = key
+        normalized = normalize_header(candidate)
+        if normalized in used_normalized_headers:
+            candidate = f"action_{key}"
+            normalized = normalize_header(candidate)
+
+        suffix = 2
+        while normalized in used_normalized_headers:
+            candidate = f"action_{key}_{suffix}"
+            normalized = normalize_header(candidate)
+            suffix += 1
+
+        used_normalized_headers.add(normalized)
+        key_aliases[key] = candidate
+        return candidate
 
     for row in all_raw_rows:
         report_id = row.get("report_id", "")
+        old_report_id = row.get("old_report_id", "")
         report_name = row.get("report_name", "")
         raw_json = row.get("action_data", "").strip()
 
@@ -172,14 +205,17 @@ def _combine_actions_chunks(
             action_obj = {"_raw": raw_json}
 
         for key in action_obj:
-            if key not in seen_keys:
-                seen_keys.add(key)
-                all_keys.append(key)
+            if key == "reportID":
+                continue
+            output_key = unique_action_header(key)
+            if output_key not in seen_keys:
+                seen_keys.add(output_key)
+                all_keys.append(output_key)
 
-        expanded.append((report_id, report_name, action_obj))
+        expanded.append((report_id, old_report_id, report_name, action_obj))
 
     fieldnames = (
-        ["report_id", "report_name"] + all_keys + ["restaurant_name", "filename", "createdAt"]
+        ["report_id", "old_report_id", "report_name"] + all_keys + ["restaurant_name", "filename", "createdAt"]
     )
 
     buf = io.StringIO()
@@ -188,17 +224,21 @@ def _combine_actions_chunks(
     )
     writer.writeheader()
 
-    for report_id, report_name, action_obj in expanded:
-        flat: dict[str, str] = {"report_id": report_id, "report_name": report_name}
-        for key in all_keys:
-            val = action_obj.get(key, "")
+    for report_id, old_report_id, report_name, action_obj in expanded:
+        flat: dict[str, str] = {
+            "report_id": report_id,
+            "old_report_id": old_report_id,
+            "report_name": report_name,
+        }
+        for source_key, output_key in key_aliases.items():
+            val = action_obj.get(source_key, "")
             if isinstance(val, (dict, list)):
                 val = json.dumps(val, ensure_ascii=False)
             elif val is None:
                 val = ""
             else:
                 val = str(val)
-            flat[key] = val
+            flat[output_key] = val
         flat["restaurant_name"] = restaurant_name
         flat["filename"] = csv_path.name
         flat["createdAt"] = created_at

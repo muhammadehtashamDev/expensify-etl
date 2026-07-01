@@ -33,6 +33,7 @@ _HEADER_ALIASES = {
     "filename": "file_name",
     "createdat": "created_at",
     "tag": "tag_name",
+    "old_report_id": "reportid",
     "action_report_id": "reportid",
     "child_oldest_four_account_ids": "child_oldest_four_account_id",
 }
@@ -100,7 +101,16 @@ def _map_headers_to_columns(headers: list[str], table_columns: list[str]) -> lis
     return mapped
 
 
+def _truncate_temp_tables(conn) -> None:
+    targets = sorted(set(_TEMP_TABLE_BY_CSV_TYPE.values()))
+    with conn.cursor() as cur:
+        for schema, table in targets:
+            cur.execute(f'TRUNCATE TABLE "{schema}"."{table}"')
+
+
 def _load_csvs_to_temp_data(conn, csv_paths: list[Path]) -> None:
+    _truncate_temp_tables(conn)
+
     for csv_path in csv_paths:
         csv_type = _csv_type_from_name(csv_path)
         schema, table = _TEMP_TABLE_BY_CSV_TYPE[csv_type]
@@ -126,7 +136,6 @@ def _load_csvs_to_temp_data(conn, csv_paths: list[Path]) -> None:
         )
 
         with conn.cursor() as cur:
-            cur.execute(f'TRUNCATE TABLE "{schema}"."{table}"')
             with csv_path.open("r", encoding="utf-8-sig", newline="") as data_fh:
                 cur.copy_expert(copy_sql, data_fh)
 

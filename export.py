@@ -9,10 +9,6 @@ Usage:
     python export.py --start 2026-01-15 --end 2026-04-30
     python export.py --year 2026 --force
     python export.py --year 2026 --dry-run
-
-Credentials are loaded from config/accounts.json (never committed to git).
-Each account writes to its own subdirectory:
-    uploads/pending/<account-name>/2026/January/
 """
 
 from __future__ import annotations
