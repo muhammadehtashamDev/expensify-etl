@@ -9,11 +9,13 @@ from pathlib import Path
 
 import psycopg2
 from psycopg2 import OperationalError
+from rich.console import Console
 
 from scripts.config import AppConfig
 from scripts.logger import get_logger
 
 log = get_logger(__name__)
+console = Console()
 
 _PROC_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
 _FAIL_NOTICE_RE = re.compile(
@@ -112,6 +114,10 @@ def _load_csvs_to_temp_data(conn, csv_paths: list[Path]) -> None:
         table_columns = _get_table_columns(conn, schema, table)
         mapped_columns = _map_headers_to_columns(headers, table_columns)
 
+        console.print(
+            f"[cyan]Loading[/cyan] [white]{csv_path.name}[/white] "
+            f"[dim]=> {schema}.{table}[/dim]"
+        )
         log.info("Loading %s into %s.%s", csv_path.name, schema, table)
         quoted_columns = ", ".join(f'"{col}"' for col in mapped_columns)
         copy_sql = (
@@ -123,6 +129,11 @@ def _load_csvs_to_temp_data(conn, csv_paths: list[Path]) -> None:
             cur.execute(f'TRUNCATE TABLE "{schema}"."{table}"')
             with csv_path.open("r", encoding="utf-8-sig", newline="") as data_fh:
                 cur.copy_expert(copy_sql, data_fh)
+
+        console.print(
+            f"[green]Loaded[/green] [white]{csv_path.name}[/white] "
+            f"[dim]into {schema}.{table}[/dim]"
+        )
 
 
 def _extract_failure_notices(notices: list[str]) -> list[str]:

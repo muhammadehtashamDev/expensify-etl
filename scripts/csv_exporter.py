@@ -13,7 +13,7 @@ Primary pipeline path — ``write_combined_csvs``:
     together in the filesystem.
 
 Secondary path — ``write_csv`` / ``write_raw_csv``:
-    Low-level helpers kept for tests and local tooling.
+    Low-level helpers kept for local tooling.
 """
 
 from __future__ import annotations
@@ -348,7 +348,7 @@ def count_csv_rows(content: bytes) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Low-level helpers — kept for write_csv (tests / local tooling)
+# Low-level helpers — kept for write_csv (local tooling)
 # ---------------------------------------------------------------------------
 
 

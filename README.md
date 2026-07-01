@@ -20,7 +20,6 @@ The pipeline calls three Freemarker templates per month. The Expensify server ge
 - **UTF-8 BOM CSV** — Excel-compatible
 - **Config via `.env`** — no secrets in source code
 - **Cleanup utility** — configurable retention policy; removes stale processed files
-- **Unit tested** — rate limiter, date utils, transformer, CSV exporter, CLI
 
 ---
 
@@ -50,20 +49,12 @@ expensify-etl/
 │   ├── rate_limiter.py          # Dual-window token-bucket limiter
 │   ├── retry.py                 # Tenacity retry decorator
 │   ├── client.py                # Expensify HTTP client
-│   ├── transformer.py           # JSON → flat dict transformer (local/test use)
+│   ├── transformer.py           # JSON → flat dict transformer (local use)
 │   ├── csv_exporter.py          # CSV writer
 │   ├── pipeline.py              # ETL orchestrator
 │   ├── cli.py                   # argparse CLI definitions
 │   ├── cleanup.py               # Retention-based cleanup utility
 │   └── utils.py                 # Date helpers, path helpers, coercions
-│
-├── tests/
-│   ├── __init__.py
-│   ├── test_rate_limiter.py
-│   ├── test_utils.py
-│   ├── test_transformer.py
-│   ├── test_cli.py
-│   └── test_csv_exporter.py
 │
 └── uploads/
     └── pending/                 # CSVs written here (flat per account)
@@ -227,20 +218,6 @@ Override the retention period:
 
 ```bash
 python scripts/cleanup.py --retention-days 60
-```
-
----
-
-## Running Tests
-
-```bash
-pytest tests/ -v
-```
-
-With coverage:
-
-```bash
-pytest tests/ -v --cov=scripts --cov-report=term-missing
 ```
 
 ---
