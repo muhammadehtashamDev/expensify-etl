@@ -15,6 +15,8 @@ The pipeline calls three Freemarker templates per month. The Expensify server ge
 - **Rich terminal UI** — progress bars, spinners, per-month status table, summary
 - **Structured logging** — rotating `app.log` + `error.log`; every request is timed and logged
 - **Three CSV files per run** — one `reports`, one `transactions`, one `actions` covering the full requested date range, written flat under `uploads/pending/<account>/` with a UTC timestamp in the filename
+- **Database load trigger** — after CSVs are written, the pipeline calls PostgreSQL procedure `public.proc_load_expensify()` (configurable via env)
+- **Post-load promotion** — CSVs are moved from `uploads/pending/<account>/` to `uploads/processed/<account>/` only when the DB procedure succeeds
 - **UTF-8 BOM CSV** — Excel-compatible
 - **Config via `.env`** — no secrets in source code
 - **Cleanup utility** — configurable retention policy; removes stale processed files
@@ -144,6 +146,15 @@ Add one numbered block per account (`ACCOUNT_1_*`, `ACCOUNT_2_*`, …). The pipe
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_DIR` | `logs` | Directory for log files |
 | `RETENTION_DAYS` | `30` | Days to retain processed files |
+| `DB_HOST` | *(required)* | PostgreSQL host |
+| `DB_PORT` | `5432` | PostgreSQL port |
+| `DB_NAME` | *(required)* | PostgreSQL database name |
+| `DB_USER` | *(required)* | PostgreSQL user |
+| `DB_PASSWORD` | *(required)* | PostgreSQL password |
+| `DB_PROCEDURE` | `public.proc_load_expensify` | Stored procedure called after CSV export |
+| `DB_CONNECT_TIMEOUT` | `10` | PostgreSQL connect timeout in seconds |
+| `DB_CONNECT_RETRIES` | `2` | Number of retries after initial connection failure |
+| `DB_CONNECT_RETRY_DELAY_SECONDS` | `2` | Delay between retries in seconds |
 
 ---
 

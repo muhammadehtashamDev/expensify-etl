@@ -81,6 +81,17 @@ class AppConfig:
     # Retention
     retention_days: int
 
+    # PostgreSQL load procedure
+    db_host: str
+    db_port: int
+    db_name: str
+    db_user: str
+    db_password: str
+    db_procedure: str
+    db_connect_timeout: int
+    db_connect_retries: int
+    db_connect_retry_delay_seconds: int
+
     # Account identity (set per-account in export.py; empty for single-account runs)
     account_name: str = ""
 
@@ -150,4 +161,13 @@ def load_config() -> AppConfig:
         log_level=_get("LOG_LEVEL", "INFO").upper(),
         log_dir=_resolve(_get("LOG_DIR", "logs")),
         retention_days=_get_int("RETENTION_DAYS", 30),
+        db_host=_require("DB_HOST"),
+        db_port=_get_int("DB_PORT", 5432),
+        db_name=_require("DB_NAME"),
+        db_user=_require("DB_USER"),
+        db_password=_get("DB_PASSWORD", ""),
+        db_procedure=_get("DB_PROCEDURE", "public.proc_load_expensify"),
+        db_connect_timeout=_get_int("DB_CONNECT_TIMEOUT", 10),
+        db_connect_retries=_get_int("DB_CONNECT_RETRIES", 2),
+        db_connect_retry_delay_seconds=_get_int("DB_CONNECT_RETRY_DELAY_SECONDS", 2),
     )

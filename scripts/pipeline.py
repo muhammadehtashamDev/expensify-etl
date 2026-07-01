@@ -50,9 +50,11 @@ from scripts.config import AppConfig
 from scripts.csv_exporter import (
     count_csv_rows,
     csv_already_exists,
+    promote_to_processed,
     write_combined_csvs,
 )
 from scripts.logger import get_logger
+from scripts.postgres_loader import run_load_procedure
 from scripts.rate_limiter import RateLimiter
 from scripts.utils import month_name, months_in_range, format_expensify_date
 
@@ -217,6 +219,31 @@ class Pipeline:
             )
             for p in csv_paths:
                 console.print(f"   [dim]→[/dim] {p.name}")
+
+            try:
+                run_load_procedure(self._config, csv_paths=csv_paths)
+            except Exception as exc:  # noqa: BLE001
+                console.print(
+                    f"\n[red]✗[/red] PostgreSQL procedure failed — "
+                    f"CSV files remain in pending. Error: {exc}"
+                )
+                log.exception("PostgreSQL load procedure failed")
+                raise RuntimeError(
+                    "PostgreSQL load procedure failed. "
+                    "Pending CSV files were not moved to processed."
+                ) from exc
+
+            promoted_paths: list[Path] = []
+            for csv_path in csv_paths:
+                promoted_paths.append(
+                    promote_to_processed(csv_path, self._config.processed_dir)
+                )
+
+            result.csv_paths = promoted_paths
+            console.print(
+                f"\n[green]✓[/green] Moved {len(promoted_paths)} CSV file(s) to "
+                f"[dim]{self._config.processed_dir.relative_to(self._config.project_root)}/[/dim]"
+            )
 
         elif result.failed > 0:
             console.print(

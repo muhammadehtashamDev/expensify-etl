@@ -20,6 +20,9 @@ tenacity==9.0.0
 # Date utilities
 python-dateutil==2.9.0.post0
 
+# PostgreSQL driver
+psycopg2-binary==2.9.9
+
 # Testing
 pytest==8.3.4
 pytest-cov==6.0.0
