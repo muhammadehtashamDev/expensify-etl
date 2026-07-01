@@ -15,15 +15,11 @@ from __future__ import annotations
 
 import dataclasses
 import sys
-from pathlib import Path
 
 from rich.console import Console
 from rich.rule import Rule
 
 console = Console()
-
-# Location of the accounts credentials file
-_ACCOUNTS_FILE = Path(__file__).parent / "config" / "accounts.json"
 
 
 def main() -> int:
@@ -60,7 +56,7 @@ def main() -> int:
     # Load accounts                                                        #
     # ------------------------------------------------------------------ #
     try:
-        all_accounts = load_accounts(_ACCOUNTS_FILE)
+        all_accounts = load_accounts()
     except (FileNotFoundError, ValueError) as exc:
         console.print(f"[red]Accounts error:[/red] {exc}")
         return 1

@@ -103,7 +103,7 @@ Examples:
         metavar="NAME",
         default=None,
         help=(
-            "Run only for a specific account name from config/accounts.json.  "
+            "Run only for a specific account name from ACCOUNT_N_NAME in .env.  "
             "Omit to run for all configured accounts."
         ),
     )

@@ -34,8 +34,6 @@ expensify-etl/
 ├── README.md
 │
 ├── config/
-│   ├── accounts.example.json    # Example format for the JSON fallback
-│   ├── accounts.json            # Gitignored — not needed when using .env
 │   └── templates/
 │       ├── reports_template.ftl      # Freemarker template: one row per report
 │       ├── transactions_template.ftl # Freemarker template: one row per transaction
@@ -43,7 +41,7 @@ expensify-etl/
 │
 ├── scripts/
 │   ├── __init__.py
-│   ├── accounts.py              # Multi-account loader (env vars → JSON fallback)
+│   ├── accounts.py              # Multi-account loader (env vars)
 │   ├── config.py                # Environment config loader
 │   ├── logger.py                # Logging setup
 │   ├── rate_limiter.py          # Dual-window token-bucket limiter
