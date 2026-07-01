@@ -50,7 +50,11 @@ def main() -> int:
         console.print(f"[red]Configuration error:[/red] {exc}")
         return 1
 
-    setup_logging(log_dir=base_config.log_dir, log_level=base_config.log_level)
+    setup_logging(
+        log_dir=base_config.log_dir,
+        log_level=base_config.log_level,
+        log_retention_days=base_config.log_retention_days,
+    )
 
     # ------------------------------------------------------------------ #
     # Load accounts                                                        #

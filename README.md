@@ -136,6 +136,7 @@ Add one numbered block per account (`ACCOUNT_1_*`, `ACCOUNT_2_*`, …). The pipe
 | `UPLOAD_PROCESSED_DIR` | `uploads/processed` | Used by cleanup utility |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_DIR` | `logs` | Directory for log files |
+| `LOG_RETENTION_DAYS` | `30` | Days to retain log files before deleting old `.log` and rotated `.log.*` files (`0` = delete all on startup, negative = disable age-based deletion) |
 | `RETENTION_DAYS` | `30` | Days to retain processed files |
 | `DB_HOST` | *(required)* | PostgreSQL host |
 | `DB_PORT` | `5432` | PostgreSQL port |
@@ -232,6 +233,8 @@ Two rotating log files are written to `logs/`:
 | `error.log` | Errors only, rotating 10 MB × 5 |
 
 Each log entry includes timestamp, level, module name, and message.
+
+Log files older than `LOG_RETENTION_DAYS` are deleted automatically when the application starts.
 
 ---
 

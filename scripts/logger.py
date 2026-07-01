@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -26,14 +27,46 @@ _MAX_BYTES = 10 * 1024 * 1024   # 10 MB per log file
 _BACKUP_COUNT = 5                # keep 5 rotated files
 
 
-def setup_logging(log_dir: Path, log_level: str = "INFO") -> None:
+def _prune_old_logs(log_dir: Path, retention_days: int) -> None:
+    """Delete log files older than *retention_days* from *log_dir*."""
+    if retention_days < 0:
+        return
+
+    if retention_days == 0:
+        for path in log_dir.glob("*.log*"):
+            try:
+                path.unlink()
+            except OSError:
+                continue
+        return
+
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=retention_days)
+    for path in log_dir.glob("*.log*"):
+        try:
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            continue
+        if modified_at < cutoff:
+            try:
+                path.unlink()
+            except OSError:
+                continue
+
+
+def setup_logging(
+    log_dir: Path,
+    log_level: str = "INFO",
+    log_retention_days: int = 30,
+) -> None:
     """Configure the root logger with file and console handlers.
 
     Args:
         log_dir: Directory where log files will be written.
         log_level: Minimum level for app.log (e.g. ``"INFO"`` or ``"DEBUG"``).
+        log_retention_days: Number of days to retain log files before deleting them.
     """
     log_dir.mkdir(parents=True, exist_ok=True)
+    _prune_old_logs(log_dir, log_retention_days)
 
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
 
@@ -76,7 +109,10 @@ def setup_logging(log_dir: Path, log_level: str = "INFO") -> None:
     root.addHandler(console_handler)
 
     logging.getLogger(__name__).debug(
-        "Logging initialised. level=%s log_dir=%s", log_level, log_dir
+        "Logging initialised. level=%s log_dir=%s retention_days=%s",
+        log_level,
+        log_dir,
+        log_retention_days,
     )
 
 
