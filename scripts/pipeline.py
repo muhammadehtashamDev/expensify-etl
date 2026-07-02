@@ -44,6 +44,7 @@ from rich.progress import (
 from rich.table import Table
 from rich import box
 
+from scripts.cleanup import run_cleanup
 from scripts.cli import CLIArgs
 from scripts.client import ExpensifyClient, ExpensifyAPIError
 from scripts.config import AppConfig
@@ -53,7 +54,7 @@ from scripts.csv_exporter import (
     promote_to_processed,
     write_combined_csvs,
 )
-from scripts.logger import get_logger
+from scripts.logger import get_logger, prune_old_logs
 from scripts.postgres_loader import run_load_procedure
 from scripts.rate_limiter import RateLimiter
 from scripts.utils import month_name, months_in_range, format_expensify_date
@@ -245,6 +246,8 @@ class Pipeline:
                 f"[dim]{self._config.processed_dir.relative_to(self._config.project_root)}/[/dim]"
             )
 
+            self._run_retention_cleanup()
+
         elif result.failed > 0:
             console.print(
                 f"\n[red]✗[/red] {result.failed} month(s) failed — "
@@ -326,6 +329,27 @@ class Pipeline:
             label, result.duration_seconds, result.error,
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Retention cleanup — runs automatically after a successful load,
+    # replacing the need for a separately scheduled cleanup job.
+    # ------------------------------------------------------------------
+
+    def _run_retention_cleanup(self) -> None:
+        console.print(
+            f"\n[cyan]↻[/cyan] Running retention cleanup "
+            f"([yellow]{self._config.retention_days}[/yellow] days)…"
+        )
+        try:
+            run_cleanup(
+                processed_dir=self._config.processed_dir,
+                retention_days=self._config.retention_days,
+                dry_run=False,
+            )
+            prune_old_logs(self._config.log_dir, self._config.log_retention_days)
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[yellow]![/yellow] Retention cleanup failed: {exc}")
+            log.exception("Retention cleanup failed")
 
     # ------------------------------------------------------------------
     # Dry run

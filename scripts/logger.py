@@ -27,7 +27,7 @@ _MAX_BYTES = 10 * 1024 * 1024   # 10 MB per log file
 _BACKUP_COUNT = 5                # keep 5 rotated files
 
 
-def _prune_old_logs(log_dir: Path, retention_days: int) -> None:
+def prune_old_logs(log_dir: Path, retention_days: int) -> None:
     """Delete log files older than *retention_days* from *log_dir*."""
     if retention_days < 0:
         return
@@ -66,7 +66,7 @@ def setup_logging(
         log_retention_days: Number of days to retain log files before deleting them.
     """
     log_dir.mkdir(parents=True, exist_ok=True)
-    _prune_old_logs(log_dir, log_retention_days)
+    prune_old_logs(log_dir, log_retention_days)
 
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
 

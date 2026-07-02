@@ -201,7 +201,16 @@ Prints the list of months that would be exported and whether they already exist.
 
 ## Cleanup
 
-Remove processed CSV files older than the configured retention period:
+Retention cleanup runs automatically at the end of every `export.py` run, right
+after new data is loaded into PostgreSQL and its CSVs are promoted to
+`uploads/processed/`. No separate scheduled job is needed. It removes:
+
+- Processed CSV files older than `RETENTION_DAYS` (and any month/year folder
+  left empty as a result).
+- Log files older than `LOG_RETENTION_DAYS`.
+
+`scripts/cleanup.py` remains available for running the CSV cleanup manually
+(e.g. to clear a backlog or preview a change in retention period):
 
 ```bash
 python scripts/cleanup.py
